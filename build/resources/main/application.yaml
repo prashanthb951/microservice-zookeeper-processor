@@ -1,8 +1,0 @@
-server:
-  port: 8081
-zookeeper:
-    connectString: localhost:2181
-    sessionTimeoutMs: 50000
-    connectionTimeoutMs: 50000
-    marketPath: /cart
-    locksPath: /locks/cart
