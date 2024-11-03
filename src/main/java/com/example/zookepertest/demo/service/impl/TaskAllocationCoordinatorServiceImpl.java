@@ -1,7 +1,7 @@
 package com.example.zookepertest.demo.service.impl;
 
 import com.example.zookepertest.demo.config.ZooKeeperConfiguration;
-import com.example.zookepertest.demo.service.MarketManagerService;
+import com.example.zookepertest.demo.service.TaskManagerService;
 import com.example.zookepertest.demo.service.ZooKeeperOperationsService;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
@@ -14,26 +14,25 @@ import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
-public class MarketAllocationCoordinatorServiceImpl {
-  private final MarketManagerService marketManagerService;
+public class TaskAllocationCoordinatorServiceImpl {
+  private final TaskManagerService taskManagerService;
   private final ZooKeeperConfiguration zooKeeperConfiguration;
   private final PathChildrenCache locksCache;
   private final PathChildrenCache cartProcessorsCache;
   private final PathChildrenCache marketsAddedCache;
 
   @Autowired
-  public MarketAllocationCoordinatorServiceImpl(ZooKeeperOperationsService zooKeeperOperations,
-                                                CartServiceImpl cartServiceImpl,
+  public TaskAllocationCoordinatorServiceImpl(ZooKeeperOperationsService zooKeeperOperations,
                                                 ZooKeeperConfiguration zooKeeperConfiguration,
-                                                MarketManagerServiceImpl marketManagerService) {
-    this.marketManagerService = marketManagerService;
+                                                TaskManagerServiceImpl taskManagerService) {
+    this.taskManagerService = taskManagerService;
     this.zooKeeperConfiguration = zooKeeperConfiguration;
     CuratorFramework curatorFramework = zooKeeperOperations.getCuratorFramework();
     locksCache =
         new PathChildrenCache(curatorFramework, zooKeeperConfiguration.getLocksPath(), true);
     cartProcessorsCache = new PathChildrenCache(curatorFramework, "/cart-processors", true);
     marketsAddedCache =
-        new PathChildrenCache(curatorFramework, zooKeeperConfiguration.getMarketPath(), true);
+        new PathChildrenCache(curatorFramework, zooKeeperConfiguration.getTaskPath(), true);
     try {
       locksCache.start(PathChildrenCache.StartMode.BUILD_INITIAL_CACHE);
       cartProcessorsCache.start(PathChildrenCache.StartMode.BUILD_INITIAL_CACHE);
@@ -48,16 +47,16 @@ public class MarketAllocationCoordinatorServiceImpl {
 
   private void handleLockEvent(CuratorFramework client, PathChildrenCacheEvent event) {
     if (event.getType() == PathChildrenCacheEvent.Type.CHILD_REMOVED) {
-      String releasedMarket =
+      String task =
           event.getData().getPath().substring(zooKeeperConfiguration.getLocksPath().length() + 1);
-      log.info("Lock released for market: {}", releasedMarket);
+      log.info("Lock released for task: {}", task);
     }
   }
 
   private void handleProcessorEvent(CuratorFramework client, PathChildrenCacheEvent event) {
     if (event.getType() == PathChildrenCacheEvent.Type.CHILD_ADDED ||
         event.getType() == PathChildrenCacheEvent.Type.CHILD_REMOVED) {
-      log.info("Cart processor change detected. Re-allocating markets.");
+      log.info("Task processor change detected. Re-allocating tasks.");
       triggerMarketReAllocation();
     }
   }
@@ -65,17 +64,17 @@ public class MarketAllocationCoordinatorServiceImpl {
   private void handleMarketEvent(CuratorFramework client, PathChildrenCacheEvent event) {
     if (event.getType() == PathChildrenCacheEvent.Type.CHILD_ADDED ||
         event.getType() == PathChildrenCacheEvent.Type.CHILD_REMOVED) {
-      log.info("Market change detected. Re-allocating markets.");
+      log.info("Task change detected. Re-allocating Tasks.");
       triggerMarketReAllocation();
     }
   }
 
   private void triggerMarketReAllocation() {
     try {
-      log.info("Triggering market re-allocation...");
-      marketManagerService.assignMarket();
+      log.info("Triggering task re-allocation...");
+      taskManagerService.assignedTasks();
     } catch (Exception e) {
-      log.error("Error during market re-allocation: {}", e.getMessage(), e);
+      log.error("Error during task re-allocation: {}", e.getMessage(), e);
     }
   }
 

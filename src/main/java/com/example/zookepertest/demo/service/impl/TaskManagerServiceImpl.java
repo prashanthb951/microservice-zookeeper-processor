@@ -1,8 +1,8 @@
 package com.example.zookepertest.demo.service.impl;
 
 import com.example.zookepertest.demo.config.ZooKeeperConfiguration;
-import com.example.zookepertest.demo.service.CartService;
-import com.example.zookepertest.demo.service.MarketManagerService;
+import com.example.zookepertest.demo.service.TaskService;
+import com.example.zookepertest.demo.service.TaskManagerService;
 import jakarta.annotation.PreDestroy;
 import java.util.Collections;
 import java.util.List;
@@ -10,7 +10,6 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.recipes.locks.InterProcessMutex;
@@ -20,46 +19,45 @@ import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
-public class MarketManagerServiceImpl implements MarketManagerService {
+public class TaskManagerServiceImpl implements TaskManagerService {
 
   private final com.example.zookepertest.demo.service.ZooKeeperOperationsService zooKeeperOperations;
   private final String myInstanceId = UUID.randomUUID().toString();
-  private List<String> assignedMarkets;
+  private List<String> assignedTasks;
   private final ZooKeeperConfiguration zooKeeperConfiguration;
-  private static final String ALLOCATION_PATH = "/cart-processors";
   private final ZooKeeperOperationsServiceImpl zooKeeperService;
   private ExecutorService executor;
-  private final AtomicBoolean processing = new AtomicBoolean(false);
-  private final CartService cartService;
+  private final TaskService taskService;
 
 
   @Autowired
-  public MarketManagerServiceImpl(
+  public TaskManagerServiceImpl(
       com.example.zookepertest.demo.service.ZooKeeperOperationsService zooKeeperOperations,
       ZooKeeperConfiguration zooKeeperConfiguration,
-      ZooKeeperOperationsServiceImpl zooKeeperService, CartServiceImpl cartService) {
+      ZooKeeperOperationsServiceImpl zooKeeperService, 
+      TaskService taskService) {
     this.zooKeeperOperations = zooKeeperOperations;
     this.zooKeeperConfiguration = zooKeeperConfiguration;
     this.zooKeeperService = zooKeeperService;
-    this.cartService = cartService;
+    this.taskService = taskService;
     registerInstance();
   }
   private void registerInstance() {
     try {
-      String allocationNodePath = ALLOCATION_PATH + "/" + myInstanceId + "||";
+      String allocationNodePath = zooKeeperConfiguration.getWorkersPath() + "/" + myInstanceId + "||";
       zooKeeperOperations.createEphemeralSequentialNode(allocationNodePath, "".getBytes());
       log.info("Registered instance {} at: {}", myInstanceId, allocationNodePath);
     } catch (Exception e) {
       log.error("Error registering instance: {}", e.getMessage(), e);
     }
   }
-  synchronized List<String> acquireMarkets() throws Exception {
-    List<String> availableMarkets =
-        zooKeeperOperations.getChildren(zooKeeperConfiguration.getMarketPath());
-    if (availableMarkets.isEmpty()) {
+  synchronized List<String> acquireTasks() throws Exception {
+    List<String> availableTasks =
+        zooKeeperOperations.getChildren(zooKeeperConfiguration.getTaskPath());
+    if (availableTasks.isEmpty()) {
       return Collections.emptyList();
     }
-    List<String> instances = zooKeeperOperations.getChildren(ALLOCATION_PATH);
+    List<String> instances = zooKeeperOperations.getChildren(zooKeeperConfiguration.getWorkersPath());
     Collections.sort(instances);
 
     Integer tempinstanceIndex = -1;
@@ -71,17 +69,17 @@ public class MarketManagerServiceImpl implements MarketManagerService {
     }
     final int instanceIndex = tempinstanceIndex;
 
-    List<String> assigned = availableMarkets.stream()
-        .filter(market -> (availableMarkets.indexOf(market) + 1) % instances.size() ==
+    List<String> assigned = availableTasks.stream()
+        .filter(task -> (availableTasks.indexOf(task) + 1) % instances.size() ==
             instanceIndex)
         .collect(Collectors.toList());
 
-    for (String market : assigned) {
-      String lockPath = zooKeeperConfiguration.getLocksPath() + "/" + market;
+    for (String task : assigned) {
+      String lockPath = zooKeeperConfiguration.getLocksPath() + "/" + task;
       InterProcessMutex mutex =
           new InterProcessMutex(zooKeeperService.getCuratorFramework(), lockPath);
       if (!mutex.acquire(10, TimeUnit.SECONDS)) {
-        log.error("Could not acquire lock for market: {}", market);
+        log.error("Could not acquire lock for task: {}", task);
         return null;
       }
       zooKeeperService.createEphemeralSequentialNode(lockPath + "/" + myInstanceId, "".getBytes());
@@ -89,47 +87,47 @@ public class MarketManagerServiceImpl implements MarketManagerService {
     return assigned;
   }
   @Override
-  public void releaseAcquiredMarkets()  {
-    if (assignedMarkets != null && !assignedMarkets.isEmpty()) {
-      for (String market : assignedMarkets) {
-        String lockPath = ZKPaths.makePath(zooKeeperConfiguration.getLocksPath(), market);
+  public void releaseAcquiredTasks()  {
+    if (assignedTasks != null && !assignedTasks.isEmpty()) {
+      for (String task : assignedTasks) {
+        String lockPath = ZKPaths.makePath(zooKeeperConfiguration.getLocksPath(), task);
         try {
           zooKeeperOperations.deleteNode(lockPath);
-          log.info("Released lock for market: {}", market);
+          log.info("Released lock for task: {}", task);
         } catch (Exception e) {
-          log.error("Error releasing lock for market {}: {}", market, e.getMessage(), e);
+          log.error("Error releasing lock for task {}: {}", task, e.getMessage(), e);
         }
       }
     }
   }
 
-  private void startMarketProcessing() {
+  private void startTaskProcessing() {
     executor = Executors.newSingleThreadExecutor();
-    processing.set(true);
-    executor.submit(() -> cartService.processMarkets(assignedMarkets));
+    taskService.stopTaskProcessing();
+    executor.submit(() -> taskService.processTasks(assignedTasks));
   }
   @Override
-  public synchronized void assignMarket() {
+  public synchronized void assignedTasks() {
     try {
       stopProcessing();
-      releaseAcquiredMarkets();
-      assignedMarkets = acquireMarkets();
-      if (assignedMarkets != null && !assignedMarkets.isEmpty()) {
-        log.info("Cart service instance {} assigned markets: {}", myInstanceId, assignedMarkets);
-        startMarketProcessing();
+      releaseAcquiredTasks();
+      assignedTasks = acquireTasks();
+      if (assignedTasks != null && !assignedTasks.isEmpty()) {
+        log.info("Task service instance {} assigned tasks: {}", myInstanceId, assignedTasks);
+        startTaskProcessing();
       } else {
         log.warn(
-            "Cart service instance {} could not acquire any markets. Retrying in 5 seconds.",
+            "Task service instance {} could not acquire any Tasks. Retrying in 5 seconds.",
             myInstanceId);
         TimeUnit.SECONDS.sleep(5);
       }
     } catch (Exception e) {
-      log.error("Error assigning markets: {}", e.getMessage(), e);
+      log.error("Error assiging tasks: {}", e.getMessage(), e);
     }
   }
   private void stopProcessing() {
-    processing.set(false);
-    if (executor != null) {
+    taskService.stopTaskProcessing();
+  if (executor != null) {
       executor.shutdown();
       try {
         if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
@@ -148,9 +146,9 @@ public class MarketManagerServiceImpl implements MarketManagerService {
   public void shutdown() {
     stopProcessing();
     try {
-      releaseAcquiredMarkets();
+      releaseAcquiredTasks();
     } catch (Exception e) {
-      log.error("Error releasing market on shutdown: {}", e.getMessage(), e);
+      log.error("Error releasing tasks on shutdown: {}", e.getMessage(), e);
     }
   }
 }

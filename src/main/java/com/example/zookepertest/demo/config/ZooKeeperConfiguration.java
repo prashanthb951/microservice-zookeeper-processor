@@ -12,5 +12,6 @@ public class ZooKeeperConfiguration {
   private int sessionTimeoutMs;
   private int connectionTimeoutMs;
   private String locksPath;
-  private String marketPath;
+  private String taskPath;
+  private String workersPath;
 }

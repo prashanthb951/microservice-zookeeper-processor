@@ -2,7 +2,7 @@ package com.example.zookepertest.demo.service.impl;
 
 import com.example.zookepertest.demo.dto.Cart;
 import com.example.zookepertest.demo.repository.CartRepository;
-import com.example.zookepertest.demo.service.CartService;
+import com.example.zookepertest.demo.service.TaskService;
 import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -12,12 +12,12 @@ import org.springframework.stereotype.Service;
 
 @Service
 @Slf4j
-public class CartServiceImpl implements CartService {
+public class TaskServiceImpl implements TaskService {
   private final CartRepository cartRepository;
   private final AtomicBoolean processing = new AtomicBoolean(false);
 
   @Autowired
-  public CartServiceImpl(CartRepository cartRepository) {
+  public TaskServiceImpl(CartRepository cartRepository) {
     this.cartRepository = cartRepository;
   }
 
@@ -33,23 +33,30 @@ public class CartServiceImpl implements CartService {
     cartRepository.save(new Cart("aus", "Cart 4"));
   }
   @Override
-  public void processMarkets(List<String> assignedMarkets) {
-    if (assignedMarkets != null && processing.get()) {
-      for (String market : assignedMarkets) {
+  public void processTasks(List<String> assignedTasks) {
+    if (assignedTasks != null && processing.get()) {
+      for (String task : assignedTasks) {
         if (!processing.get()) {
-          log.info("Processing of markets stopped because reassignment is in progress.");
+          log.info("Processing of tasks stopped because reassignment is in progress.");
           return;
         }
-        processMarket(market);
+        processTask(task);
       }
     }
   }
+     @Override
+    public void stopTaskProcessing()
+      {
+         this.processing.set(false);
+   }
 
-  private void processMarket(String market) {
+  private void processTask(String task) {
+
+    //Business Logic
     try {
-      List<Cart> cartsToDelete = cartRepository.findByMarket(market);
+      List<Cart> cartsToDelete = cartRepository.findByMarket(task);
       if (cartsToDelete != null && !cartsToDelete.isEmpty()) {
-        log.info("Deleting {} Cart for market: {}", cartsToDelete.size(), market);
+        log.info("Deleting {} Cart for market: {}", cartsToDelete.size(), task);
         for (Cart cart : cartsToDelete) {
           try {
             cartRepository.delete(cart);
@@ -59,10 +66,10 @@ public class CartServiceImpl implements CartService {
           }
         }
       } else {
-        log.info("No Carts found for market: {}", market);
+        log.info("No Carts found for task: {}", task);
       }
     } catch (Exception e) {
-      log.error("Error processing market {}: {}", market, e.getMessage(), e);
+      log.error("Error processing task {}: {}", task, e.getMessage(), e);
     }
   }
 
